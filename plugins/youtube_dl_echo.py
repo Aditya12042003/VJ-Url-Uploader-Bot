@@ -2,47 +2,45 @@
 # Subscribe YouTube Channel For Amazing Bot https://youtube.com/@Tech_VJ
 # Ask Doubt on telegram @KingVJ01
 
-
-import logging
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+import logging, requests, urllib.parse, os, time, shutil, asyncio, json, math
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
+logger = logging.getLogger(__name__)
 
-import os
-import time
-import json
-import asyncio
-
-if bool(os.environ.get("WEBHOOK", False)):
-    from sample_config import Config
-else:
-    from config import Config
-
+from config import Config
+from pyrogram import filters, enums
+from database.access import techvj
 from translation import Translation
-
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-
-from helper_funcs.database import *
+from database.adduser import AddUser
+from pyrogram import Client as Tech_VJ
+from hachoir.parser import createParser
+from hachoir.metadata import extractMetadata
 from helper_funcs.display_progress import humanbytes
 from helper_funcs.help_uploadbot import DownLoadFile
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from helper_funcs.display_progress import progress_for_pyrogram, humanbytes, TimeFormatter
+from utils import verify_user, check_token, check_verification, get_token
 
-
-@Client.on_message(filters.private & filters.regex(pattern=".*http.*"))
+@Tech_VJ.on_message(filters.private & ~filters.via_bot & filters.regex(pattern=".*http.*"))
 async def echo(bot, update):
-    if update.from_user.id in Config.BANNED_USERS:
-        await bot.delete_messages(
-            chat_id=update.chat.id,
-            message_ids=update.message_id,
-            revoke=True
+    if not await check_verification(bot, update.from_user.id) and Config.TECH_VJ == True:
+        btn = [[
+            InlineKeyboardButton("👨‍💻 ᴠᴇʀɪғʏ", url=await get_token(bot, update.from_user.id, f"https://telegram.me/{Config.TECH_VJ_BOT_USERNAME}?start="))
+            ],[
+            InlineKeyboardButton("🔻 ʜᴏᴡ ᴛᴏ ᴏᴘᴇɴ ʟɪɴᴋ ᴀɴᴅ ᴠᴇʀɪғʏ 🔺", url=f"{Config.TECH_VJ_TUTORIAL}")
+        ]]
+        await update.reply_text(
+            text="<b>ᴅᴜᴇ ᴛᴏ ᴏᴠᴇʀʟᴏᴀᴅ ᴏɴ ʙᴏᴛ ʏᴏᴜ ʜᴀᴠᴇ ᴠᴇʀɪғʏ ғɪʀsᴛ\nᴋɪɴᴅʟʏ ᴠᴇʀɪғʏ ғɪʀsᴛ\n\nɪғ ʏᴏᴜ ᴅᴏɴ'ᴛ ᴋɴᴏᴡ ʜᴏᴡ ᴛᴏ ᴠᴇʀɪғʏ ᴛʜᴇɴ ᴛᴀᴘ ᴏɴ ʜᴏᴡ ᴛᴏ ᴏᴘᴇɴ ʟɪɴᴋ ʙᴜᴛᴛᴏɴ ᴛʜᴇɴ sᴇᴇ 60 sᴇᴄᴏɴᴅ ᴠɪᴅᴇᴏ ᴛʜᴇɴ ᴄʟɪᴄᴋ ᴏɴ ᴠᴇʀɪғʏ ʙᴜᴛᴛᴏɴ ᴀɴᴅ ᴠᴇʀɪғʏ</b>",
+            protect_content=True,
+            reply_markup=InlineKeyboardMarkup(btn)
         )
         return
-    intmsg = await update.reply_text("Analyzing given link...", quote=True)   
-    url = update.text
+    await AddUser(bot, update)
+    imog = await update.reply_text("**ᴘʀᴏᴄᴇssɪɴɢ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ ᴅᴇᴀʀ...⚡**", reply_to_message_id=update.id)
     youtube_dl_username = None
     youtube_dl_password = None
     file_name = None
+    url = update.text
     if "|" in url:
         url_parts = url.split("|")
         if len(url_parts) == 2:
@@ -65,6 +63,7 @@ async def echo(bot, update):
             url = url.strip()
         if file_name is not None:
             file_name = file_name.strip()
+        # https://stackoverflow.com/a/761825/4723940
         if youtube_dl_username is not None:
             youtube_dl_username = youtube_dl_username.strip()
         if youtube_dl_password is not None:
@@ -79,62 +78,53 @@ async def echo(bot, update):
                 o = entity.offset
                 l = entity.length
                 url = url[o:o + l]
-    if Config.HTTP_PROXY != "":
+    if Config.TECH_VJ_HTTP_PROXY != "":
         command_to_exec = [
-            "youtube-dl",
+            "yt-dlp",
             "--no-warnings",
             "--youtube-skip-dash-manifest",
             "-j",
             url,
-            "--proxy", Config.HTTP_PROXY
+            "--proxy", Config.TECH_VJ_HTTP_PROXY
         ]
     else:
         command_to_exec = [
-            "youtube-dl",
+            "yt-dlp",
             "--no-warnings",
             "--youtube-skip-dash-manifest",
             "-j",
             url
         ]
-    if "hotstar" in url:
-        command_to_exec.append("--geo-bypass-country")
-        command_to_exec.append("IN")
     if youtube_dl_username is not None:
         command_to_exec.append("--username")
         command_to_exec.append(youtube_dl_username)
     if youtube_dl_password is not None:
         command_to_exec.append("--password")
         command_to_exec.append(youtube_dl_password)
-    process = await asyncio.create_subprocess_exec(
-        *command_to_exec,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    process = await asyncio.create_subprocess_exec(*command_to_exec,
+    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     stdout, stderr = await process.communicate()
     e_response = stderr.decode().strip()
-    # logger.info(e_response)
     t_response = stdout.decode().strip()
-    # logger.info(t_response)
-
     if e_response and "nonnumeric port" not in e_response:
-        # logger.warn("Status : FAIL", exc.returncode, exc.output)
-        error_message = e_response.replace("Your Text Here", "")
+        error_message = e_response.replace(Translation.TECH_VJ_ERROR_YTDLP, "")
         if "This video is only available for registered users." in error_message:
-            error_message += Translation.SET_CUSTOM_USERNAME_PASSWORD
-        await bot.send_message(
-            chat_id=update.chat.id,
-            text=Translation.NO_VOID_FORMAT_FOUND.format(str(error_message)),
-            reply_to_message_id=update.message_id,
-            parse_mode="html",
-            disable_web_page_preview=True
-        )
+            error_message = Translation.TECH_VJ_SET_CUSTOM_USERNAME_PASSWORD
+        else:
+            error_message = "sᴀɪᴅ ɪɴᴠᴀʟɪᴅ ᴜʀʟ 🚸</code>"
+        await bot.send_message(chat_id=update.chat.id,
+        text=Translation.TECH_VJ_NO_VOID_FORMAT_FOUND.format(str(error_message)),
+        disable_web_page_preview=True, parse_mode=enums.ParseMode.HTML,
+        reply_to_message_id=update.id)
+        await imog.delete(True)
         return False
     if t_response:
+        # logger.info(t_response)
         x_reponse = t_response
         if "\n" in x_reponse:
             x_reponse, _ = x_reponse.split("\n")
         response_json = json.loads(x_reponse)
-        save_ytdl_json_path = Config.DOWNLOAD_LOCATION + \
+        save_ytdl_json_path = Config.TECH_VJ_DOWNLOAD_LOCATION + \
             "/" + str(update.from_user.id) + ".json"
         with open(save_ytdl_json_path, "w", encoding="utf8") as outfile:
             json.dump(response_json, outfile, ensure_ascii=False)
@@ -179,6 +169,7 @@ async def echo(bot, update):
                             )
                         )"""
                 else:
+                    # special weird case :\
                     ikeyboard = [
                         InlineKeyboardButton(
                             "SVideo [" +
@@ -240,39 +231,13 @@ async def echo(bot, update):
                 )
             ])
         reply_markup = InlineKeyboardMarkup(inline_keyboard)
-
-        thumbnail = Config.DEF_THUMB_NAIL_VID_S
-        thumbnail_image = Config.DEF_THUMB_NAIL_VID_S
-        thumb_image_path = Config.DOWNLOAD_LOCATION + "/" + str(update.from_user.id) + ".jpg"
-
-        if not os.path.exists(thumb_image_path):
-            mes = await thumb(update.from_user.id)
-            if mes != None:
-                m = await bot.get_messages(update.chat.id, mes.msg_id)
-                await m.download(file_name=thumb_image_path)
-                thumb_image_path = thumb_image_path
-            else:
-                if "thumbnail" in response_json:
-                    if response_json["thumbnail"] is not None:
-                        thumbnail = response_json["thumbnail"]
-                        thumbnail_image = response_json["thumbnail"]
-                thumb_image_path = DownLoadFile(
-                    thumbnail_image,
-                    Config.DOWNLOAD_LOCATION + "/" +
-                    str(update.from_user.id) + ".jpg",
-                    Config.CHUNK_SIZE,
-                    None,  # bot,
-                    Translation.DOWNLOAD_START,
-                    update.message_id,
-                    update.chat.id
-                )
-        await intmsg.delete()
+        await imog.delete(True)
         await bot.send_message(
             chat_id=update.chat.id,
-            text=Translation.FORMAT_SELECTION.format(thumbnail) + "\n\n" + Translation.SET_CUSTOM_USERNAME_PASSWORD,
+            text=Translation.TECH_VJ_FORMAT_SELECTION + "\n" + Translation.TECH_VJ_SET_CUSTOM_USERNAME_PASSWORD,
             reply_markup=reply_markup,
-            parse_mode="html",
-            reply_to_message_id=update.message_id
+            parse_mode=enums.ParseMode.HTML,
+            reply_to_message_id=update.id
         )
     else:
         inline_keyboard = []
@@ -291,12 +256,10 @@ async def echo(bot, update):
             )
         ])
         reply_markup = InlineKeyboardMarkup(inline_keyboard)
-
-        await intmsg.delete()
+        await imog.delete(True)
         await bot.send_message(
-            chat_id=update.chat.id,
-            text=Translation.FORMAT_SELECTION.format(""),
-            reply_markup=reply_markup,
-            parse_mode="html",
-            reply_to_message_id=update.message_id
-        )
+        chat_id=update.chat.id,
+        text=Translation.TECH_VJ_FORMAT_SELECTION,
+        reply_markup=reply_markup,
+        parse_mode=enums.ParseMode.HTML,
+        reply_to_message_id=update.id)
